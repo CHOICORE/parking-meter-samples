@@ -1,0 +1,25 @@
+spring.application.name: parking-meter
+
+spring:
+  main:
+    web-application-type: servlet
+
+  config:
+    import:
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/parking?serverTimezone=Asia/Seoul
+    username: user
+    password: secret
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create
+    properties:
+      hibernate:
+        generate_statistics: true
+        show_sql: true
+        format_sql: true
+        highlight_sql: true
