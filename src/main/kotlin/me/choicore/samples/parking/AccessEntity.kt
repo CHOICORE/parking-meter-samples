@@ -13,7 +13,7 @@ class AccessEntity(
     val licensePlate: LicensePlate,
     val enteredAt: LocalDateTime,
     var exitedAt: LocalDateTime? = null,
-    val idempotent: Idempotent,
+    val idempotencyKey: IdempotencyKey,
 ) : AutoIncrement() {
     val building: String = destination.building
     val unit: String = destination.unit
