@@ -19,7 +19,13 @@ spring:
       ddl-auto: create
     properties:
       hibernate:
-        generate_statistics: true
-        show_sql: true
+        show_sql: false
         format_sql: true
-        highlight_sql: true
+        highlight_sql: false
+
+  data:
+    redis:
+      client-type: lettuce
+      host: localhost
+      port: 6379
+      database: 0
