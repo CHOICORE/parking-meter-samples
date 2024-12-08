@@ -1,21 +1,38 @@
 package me.choicore.samples.parking
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 @Service
 class ParkingService(
     val cache: StringRedisTemplate,
+    val objectMapper: ObjectMapper,
 ) {
     fun enter(entry: Entry) {
+        println(entry)
         val key = this.determineKey(entry)
         val existing: String? = cache.opsForValue().get(key)
         val idempotencyKey =
             if (existing != null) {
+                val score = LocalDateTime.of(2024, 12, 9, 19, 0, 0).toEpochSecond(ZoneOffset.UTC).toDouble()
+                // 새로운 value를 기존 score로 저장
+                val newValue = objectMapper.writeValueAsString(entry) // 새로운 value
+                val entryKey = "parking:entries:${entry.getIdempotencyKey().value}"
+                cache.opsForZSet().add(entryKey, newValue, score)
+
                 IdempotencyKey(existing)
             } else {
-                entry.getIdempotencyKey()
+                val idempotencyKey = entry.getIdempotencyKey()
+                cache.opsForValue().set(key, idempotencyKey.value, 10, java.util.concurrent.TimeUnit.SECONDS)
+                val enteredAt = entry.enteredAt
+                val entryKey = "parking:entries:${idempotencyKey.value}"
+                val value = objectMapper.writeValueAsString(entry)
+                cache.opsForZSet().add(entryKey, value, enteredAt.toEpochSecond(ZoneOffset.UTC).toDouble())
+                cache.expire(entryKey, 10, java.util.concurrent.TimeUnit.SECONDS)
+                idempotencyKey
             }
     }
 
