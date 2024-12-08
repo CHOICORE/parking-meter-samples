@@ -36,6 +36,13 @@ class ParkingService(
             }
     }
 
+// Key Structure
+//    parking:entries -> Sorted Set {
+//        "parking:entries:b7209945d4a9d02e98afd3fb56de24cc" -> score: 1733770800
+//    }
+// 실제 데이터는
+//    parking:entries:b7209945d4a9d02e98afd3fb56de24cc -> String (실제 JSON 데이터)
+
     private fun determineKey(entry: Entry) = "parking:entered:${entry.getIdempotencyKey()}"
 
     fun enter(
