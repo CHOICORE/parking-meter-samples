@@ -7,8 +7,4 @@ data class Entry(
     val destination: Destination,
     val licensePlate: LicensePlate,
     val enteredAt: LocalDateTime,
-) : AbstractIdempotent() {
-    override fun getPlainText(): String = "$parkingLot:${destination.building}:${destination.unit}:${licensePlate.number}"
-
-//    fun entered(idempotent: Idempotent): Entered = Entered(idempotent, parkingLot, destination, licensePlate, enteredAt)
-}
+) : AbstractIdempotent(source = "$parkingLot:${destination.building}:${destination.unit}:${licensePlate.number}")

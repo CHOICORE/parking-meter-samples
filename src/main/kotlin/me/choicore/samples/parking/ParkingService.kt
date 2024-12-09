@@ -1,10 +1,14 @@
 package me.choicore.samples.parking
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.springframework.data.redis.connection.RedisStringCommands
 import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.data.redis.core.types.Expiration
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
-import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+
+private const val DUPLICATE_TIME_WINDOW_SECONDS: Long = 10
 
 @Service
 class ParkingService(
@@ -12,76 +16,71 @@ class ParkingService(
     val objectMapper: ObjectMapper,
 ) {
     fun enter(entry: Entry) {
-        println(entry)
-        val key = this.determineKey(entry)
-        val existing: String? = cache.opsForValue().get(key)
-        val idempotencyKey =
-            if (existing != null) {
-                val score = LocalDateTime.of(2024, 12, 9, 19, 0, 0).toEpochSecond(ZoneOffset.UTC).toDouble()
-                // 새로운 value를 기존 score로 저장
-                val newValue = objectMapper.writeValueAsString(entry) // 새로운 value
-                val entryKey = "parking:entries:${entry.getIdempotencyKey().value}"
-                cache.opsForZSet().add(entryKey, newValue, score)
-
-                IdempotencyKey(existing)
-            } else {
-                val idempotencyKey = entry.getIdempotencyKey()
-                cache.opsForValue().set(key, idempotencyKey.value, 10, java.util.concurrent.TimeUnit.SECONDS)
-                val enteredAt = entry.enteredAt
-                val entryKey = "parking:entries:${idempotencyKey.value}"
-                val value = objectMapper.writeValueAsString(entry)
-                cache.opsForZSet().add(entryKey, value, enteredAt.toEpochSecond(ZoneOffset.UTC).toDouble())
-                cache.expire(entryKey, 10, java.util.concurrent.TimeUnit.SECONDS)
-                idempotencyKey
-            }
+        val idempotencyKey = createIdempotencyKey(entry.idempotencyKey.value)
+        val accessKey = getAccessKey(idempotencyKey)
+        when {
+            accessKey != null -> onExists(accessKey, entry)
+            else -> onNotExists(idempotencyKey, entry)
+        }
     }
 
-// Key Structure
-//    parking:entries -> Sorted Set {
-//        "parking:entries:b7209945d4a9d02e98afd3fb56de24cc" -> score: 1733770800
-//    }
-// 실제 데이터는
-//    parking:entries:b7209945d4a9d02e98afd3fb56de24cc -> String (실제 JSON 데이터)
+    private fun getAccessKey(idempotencyKey: String): String? = cache.opsForValue().get(idempotencyKey)
 
-    private fun determineKey(entry: Entry) = "parking:entered:${entry.getIdempotencyKey()}"
+    private fun determineNextExecution(timestamp: LocalDateTime): Double =
+        timestamp.plusSeconds(DUPLICATE_TIME_WINDOW_SECONDS).format(DATE_TIME_FORMATTER).toDouble()
 
-    fun enter(
-        parkingLot: Long,
-        destination: Destination,
-        licensePlate: LicensePlate,
-        enteredAt: LocalDateTime,
+    private fun createIdempotencyKey(value: String) = "$EVENTS_KEY:$value"
+
+    private fun getKey(accessKey: String) = "$ENTRIES_KEY:$accessKey"
+
+    private fun onExists(
+        accessKey: String,
+        entry: Entry,
     ) {
-        // 요청이 중복되는지 확인
+        val key = getKey(accessKey)
+        val value = getValue(entry)
+        cache.opsForValue().set(key, value)
     }
 
-    fun exit(
-        parkingLot: Long,
-        licensePlate: LicensePlate,
-        enteredAt: LocalDateTime,
-        exitedAt: LocalDateTime,
-        idempotent: Idempotent?,
+    private fun onNotExists(
+        idempotencyKey: String,
+        entry: Entry,
     ) {
+        val accessKey = AccessKey.generate().value
+        val entryKey = getKey(accessKey)
+        val entryValue = getValue(entry)
+
+        cache.execute {
+            it.multi()
+            it.stringCommands().set(
+                idempotencyKey.toByteArray(),
+                accessKey.toByteArray(),
+                Expiration.seconds(DUPLICATE_TIME_WINDOW_SECONDS),
+                RedisStringCommands.SetOption.UPSERT,
+            )
+
+            it.stringCommands().set(
+                entryKey.toByteArray(),
+                entryValue.toByteArray(),
+            )
+
+            it.zSetCommands().zAdd(
+                BATCH_KEY.toByteArray(),
+                determineNextExecution(entry.enteredAt),
+                entryKey.toByteArray(),
+            )
+
+            it.exec()
+        }
+    }
+
+    private fun getValue(entry: Entry): String = objectMapper.writeValueAsString(entry)
+
+    companion object {
+        private val DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        private const val PARKING_KEY_PREFIX = "parking"
+        private const val ENTRIES_KEY = "$PARKING_KEY_PREFIX:entries"
+        private const val EVENTS_KEY = "$PARKING_KEY_PREFIX:events:entered"
+        private const val BATCH_KEY = "batch"
     }
 }
-
-// @Service
-// class ParkingService(
-//    private val idempotencyKeyResolver: IdempotencyKeyResolver,
-// ) {
-//    fun enter(entry: Entry) {
-//        val idempotent: Idempotent = resolveIdempotencyKey(entry)
-// //        return entry.entered(idempotent)
-//        TODO()
-//    }
-//
-//    fun exit(
-//        parkingLot: Long,
-//        licensePlate: LicensePlate,
-//        enteredAt: LocalDateTime,
-//        exitedAt: LocalDateTime,
-//        idempotent: Idempotent?,
-//    ) {
-//    }
-//
-//    private fun resolveIdempotencyKey(entry: Entry) = idempotencyKeyResolver.resolve(entry.key)
-// }
