@@ -7,4 +7,16 @@ data class Entry(
     val destination: Destination,
     val licensePlate: LicensePlate,
     val enteredAt: LocalDateTime,
-) : AbstractIdempotent(source = "$parkingLot:${destination.building}:${destination.unit}:${licensePlate.number}")
+) : Idempotence(source = "$parkingLot:${destination.building}:${destination.unit}:${licensePlate.number}") {
+    fun reject(
+        accessKey: AccessKey,
+        reason: String,
+    ) = Parking.Entered(
+        accessKey = accessKey,
+        parkingLot = parkingLot,
+        destination = destination,
+        licensePlate = licensePlate,
+        enteredAt = enteredAt,
+        reason = reason,
+    )
+}

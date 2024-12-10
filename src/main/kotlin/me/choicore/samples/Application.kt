@@ -18,12 +18,12 @@ fun main(args: Array<String>) {
     val ac = runApplication<Application>(*args)
     val redisTemplate = ac.getBean(StringRedisTemplate::class.java)
     val enteredAt = LocalDateTime.of(2024, 12, 9, 19, 0, 0)
-    val objectMapper = Jackson2ObjectMapperBuilder.json().build<ObjectMapper>()
+    Jackson2ObjectMapperBuilder.json().build<ObjectMapper>()
     val entry =
         Entry(
             parkingLot = 1,
             destination = Destination.UNKNOWN,
-            licensePlate = LicensePlate("123가1234"),
+            licensePlate = LicensePlate.of(number = "123가1234"),
             enteredAt = enteredAt,
         )
     val parkingService = ac.getBean(ParkingService::class.java)
@@ -31,21 +31,22 @@ fun main(args: Array<String>) {
     val duplicate = entry.copy(enteredAt = enteredAt.plusSeconds(5))
     parkingService.enter(duplicate)
 
-    val tasks =
-        redisTemplate
-            .opsForZSet()
-            .reverseRangeByScore(
-                "batch",
-                0.0,
-                Double.POSITIVE_INFINITY,
-            )
+    redisTemplate
+        .opsForZSet()
+        .reverseRangeByScore(
+            "batch",
+            0.0,
+            Double.POSITIVE_INFINITY,
+        )
 
-    if (tasks != null) {
-        val multiGet =
-            redisTemplate.opsForValue().multiGet(tasks)?.mapNotNull {
-                objectMapper.readValue<Entry>(it, Entry::class.java)
-            } ?: emptyList()
-
-        println(multiGet)
-    }
+//    if (tasks != null) {
+//        val entries =
+//            redisTemplate.opsForValue().multiGet(tasks)?.mapNotNull {
+//                objectMapper.readValue<Entry>(it, Entry::class.java)
+//            } ?: emptyList()
+//
+//        for (i in entries) {
+//            println(i)
+//        }
+//    }
 }

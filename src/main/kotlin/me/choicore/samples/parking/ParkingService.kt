@@ -2,59 +2,60 @@ package me.choicore.samples.parking
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.data.redis.connection.RedisStringCommands
-import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.data.redis.core.types.Expiration
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
-private const val DUPLICATE_TIME_WINDOW_SECONDS: Long = 10
-
 @Service
 class ParkingService(
-    val cache: StringRedisTemplate,
+    val redisTemplate: RedisTemplate<String, String>,
     val objectMapper: ObjectMapper,
 ) {
     fun enter(entry: Entry) {
-        val idempotencyKey = createIdempotencyKey(entry.idempotencyKey.value)
+        if (entry.destination.isUnknown()) {
+            entry.reject(accessKey = AccessKey.generate(), reason = "Unknown destination")
+        }
+
+        val idempotencyKey = createIdempotencyKey(entry.idempotencyKey)
         val accessKey = getAccessKey(idempotencyKey)
         when {
-            accessKey != null -> onExists(accessKey, entry)
-            else -> onNotExists(idempotencyKey, entry)
+            accessKey != null -> onRecentEntryExists(accessKey = AccessKey.of(value = accessKey), entry = entry)
+            else -> onRecentEntryNotExists(idempotencyKey, entry)
         }
     }
 
-    private fun getAccessKey(idempotencyKey: String): String? = cache.opsForValue().get(idempotencyKey)
+    private fun getAccessKey(idempotencyKey: String): String? = redisTemplate.opsForValue().get(idempotencyKey)
 
     private fun determineNextExecution(timestamp: LocalDateTime): Double =
         timestamp.plusSeconds(DUPLICATE_TIME_WINDOW_SECONDS).format(DATE_TIME_FORMATTER).toDouble()
 
-    private fun createIdempotencyKey(value: String) = "$EVENTS_KEY:$value"
+    private fun createIdempotencyKey(idempotencyKey: IdempotencyKey): String = "$EVENTS_KEY:${idempotencyKey.value}"
 
-    private fun getKey(accessKey: String) = "$ENTRIES_KEY:$accessKey"
+    private fun getKey(accessKey: AccessKey) = "$ENTRIES_KEY:${accessKey.value}"
 
-    private fun onExists(
-        accessKey: String,
+    private fun onRecentEntryExists(
+        accessKey: AccessKey,
         entry: Entry,
     ) {
-        val key = getKey(accessKey)
-        val value = getValue(entry)
-        cache.opsForValue().set(key, value)
+        redisTemplate.opsForValue().set(getKey(accessKey), getValue(entry))
     }
 
-    private fun onNotExists(
+    private fun onRecentEntryNotExists(
         idempotencyKey: String,
         entry: Entry,
     ) {
-        val accessKey = AccessKey.generate().value
+        val accessKey = AccessKey.generate()
         val entryKey = getKey(accessKey)
         val entryValue = getValue(entry)
 
-        cache.execute {
+        println(entryKey)
+        redisTemplate.execute {
             it.multi()
             it.stringCommands().set(
                 idempotencyKey.toByteArray(),
-                accessKey.toByteArray(),
+                accessKey.value.toByteArray(),
                 Expiration.seconds(DUPLICATE_TIME_WINDOW_SECONDS),
                 RedisStringCommands.SetOption.UPSERT,
             )
@@ -77,10 +78,11 @@ class ParkingService(
     private fun getValue(entry: Entry): String = objectMapper.writeValueAsString(entry)
 
     companion object {
-        private val DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        private val DATE_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
         private const val PARKING_KEY_PREFIX = "parking"
-        private const val ENTRIES_KEY = "$PARKING_KEY_PREFIX:entries"
-        private const val EVENTS_KEY = "$PARKING_KEY_PREFIX:events:entered"
+        private const val ENTRIES_KEY = "entries"
+        private const val EVENTS_KEY = "events:entered"
         private const val BATCH_KEY = "batch"
+        private const val DUPLICATE_TIME_WINDOW_SECONDS: Long = 10
     }
 }
