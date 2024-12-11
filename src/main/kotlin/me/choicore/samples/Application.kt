@@ -8,7 +8,6 @@ import me.choicore.samples.parking.ParkingService
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.data.redis.core.StringRedisTemplate
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder
 import java.time.LocalDateTime
 
 @SpringBootApplication
@@ -16,37 +15,41 @@ class Application
 
 fun main(args: Array<String>) {
     val ac = runApplication<Application>(*args)
-    val redisTemplate = ac.getBean(StringRedisTemplate::class.java)
-    val enteredAt = LocalDateTime.of(2024, 12, 9, 19, 0, 0)
-    Jackson2ObjectMapperBuilder.json().build<ObjectMapper>()
-    val entry =
+    val parkingService = ac.getBean(ParkingService::class.java)
+    val enteredAt = LocalDateTime.now()
+
+    val entry1 =
         Entry(
             parkingLot = 1,
             destination = Destination.UNKNOWN,
             licensePlate = LicensePlate.of(number = "123가1234"),
             enteredAt = enteredAt,
         )
-    val parkingService = ac.getBean(ParkingService::class.java)
-    parkingService.enter(entry)
-    val duplicate = entry.copy(enteredAt = enteredAt.plusSeconds(5))
-    parkingService.enter(duplicate)
 
-    redisTemplate
-        .opsForZSet()
-        .reverseRangeByScore(
-            "batch",
-            0.0,
-            Double.POSITIVE_INFINITY,
-        )
+    val entry2 = entry1.copy(enteredAt = enteredAt.plusSeconds(5))
+    val entry3 = entry2.copy(enteredAt = enteredAt.plusSeconds(5))
 
-//    if (tasks != null) {
-//        val entries =
-//            redisTemplate.opsForValue().multiGet(tasks)?.mapNotNull {
-//                objectMapper.readValue<Entry>(it, Entry::class.java)
-//            } ?: emptyList()
-//
-//        for (i in entries) {
-//            println(i)
-//        }
-//    }
+    parkingService.enter(entry1)
+    parkingService.enter(entry2)
+    parkingService.enter(entry3)
+
+    val redisTemplate = ac.getBean(StringRedisTemplate::class.java)
+    val objectMapper = ac.getBean(ObjectMapper::class.java)
+    val tasks =
+        redisTemplate
+            .opsForZSet()
+            .reverseRangeByScore("batch", 0.0, Double.POSITIVE_INFINITY)
+            ?.toList()
+
+    if (tasks != null) {
+        val entries =
+            redisTemplate.opsForValue().multiGet(tasks)?.mapNotNull {
+                println("retrieved: $it")
+                objectMapper.readValue<Entry>(it, Entry::class.java)
+            } ?: emptyList()
+
+        for (entry in entries) {
+            println(entry)
+        }
+    }
 }

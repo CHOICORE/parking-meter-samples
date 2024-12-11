@@ -49,8 +49,6 @@ class ParkingService(
         val accessKey = AccessKey.generate()
         val entryKey = getKey(accessKey)
         val entryValue = getValue(entry)
-
-        println(entryKey)
         redisTemplate.execute {
             it.multi()
             it.stringCommands().set(
