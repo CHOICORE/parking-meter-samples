@@ -2,11 +2,20 @@ package me.choicore.samples.parking
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.security.NoSuchAlgorithmException
 
 private const val HEX_DIGITS = "0123456789abcdef"
 
 object MessageDigesters {
-    private val messageDigest: MessageDigest by lazy { MessageDigest.getInstance("SHA-256") }
+    private val messageDigest: MessageDigest by lazy { getInstance(algorithm = "SHA-256") }
+
+    fun getInstance(algorithm: String): MessageDigest {
+        try {
+            return MessageDigest.getInstance(algorithm)
+        } catch (e: NoSuchAlgorithmException) {
+            throw IllegalStateException("Could not find MessageDigest with algorithm \"$algorithm\"", e)
+        }
+    }
 
     fun digest(input: String): ByteArray = messageDigest.digest(input.toByteArray(StandardCharsets.UTF_8))
 
